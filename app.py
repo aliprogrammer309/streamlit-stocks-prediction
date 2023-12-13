@@ -1,6 +1,8 @@
 import streamlit as st
 import yfinance as yf
+import requests
 
+# Function definitions
 def pv(fv, requiredRateOfReturn, years):
     return fv / ((1 + requiredRateOfReturn / 100) ** years)
 
@@ -13,10 +15,18 @@ buttonClicked = st.button('Set')
 
 # Callbacks
 if buttonClicked:
-    # Get the data using yfinance
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    st.session_state.data = info
+    try:
+        # Get the data using yfinance
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if 'currentPrice' not in info or info['currentPrice'] is None:
+            st.error(f"Current price data is not available for {ticker}. Please try a different ticker.")
+        else:
+            st.session_state.data = info
+    except requests.exceptions.ConnectionError:
+        st.error("Failed to connect to the data source. Please check your internet connection.")
+    except Exception as e:
+        st.error(f"An error occurred while fetching data for {ticker}: {e}")
 
 if 'data' in st.session_state:
     data = st.session_state.data
@@ -49,20 +59,30 @@ if 'data' in st.session_state:
     st.metric("Years to Project", yearsToProject)
 
     # Get user inputs for future projections
-    growth = st.number_input("Annual Growth Rate (%)", min_value=0.0, max_value=100.0, step=0.5, value=10.0)  # Default to 10% as an example
-    peFWD = st.number_input("Future P/E Ratio", min_value=0.0, step=0.1, value=data.get("forwardPE", 15))  # Default to forwardPE or 15
-    requiredRateOfReturn = st.number_input("Required Rate of Return (%)", min_value=0.0, max_value=100.0, step=0.5, value=10.0)  # Default to 10%
-    yearsToProject = st.number_input("Years to Project", min_value=1, max_value=30, step=1, value=5)  # Default to 5 years
+    growth = st.number_input("Annual Growth Rate (%)", min_value=0.0, max_value=100.0, step=0.5, value=10.0)
+    peFWD = st.number_input("Future P/E Ratio", min_value=0.0, step=0.1, value=data.get("forwardPE", 15))
+    requiredRateOfReturn = st.number_input("Required Rate of Return (%)", min_value=0.0, max_value=100.0, step=0.5, value=10.0)
+    yearsToProject = st.number_input("Years to Project", min_value=1, max_value=30, step=1, value=5)
 
-    # Fair value calculation
-    futureEPS = fv(epsFWD, growth / 100, yearsToProject)
-    futurePrice = futureEPS * peFWD
-    stickerPrice = pv(futurePrice, requiredRateOfReturn / 100, yearsToProject)
-    upside = (stickerPrice - currentPrice) / currentPrice * 100  # Calculating the upside
+    # Validate user inputs
+    if growth < 0 or growth > 100:
+        st.warning("Please enter a growth rate between 0 and 100.")
+    elif peFWD < 0:
+        st.warning("Please enter a positive Future P/E Ratio.")
+    elif requiredRateOfReturn < 0 or requiredRateOfReturn > 100:
+        st.warning("Please enter a Required Rate of Return between 0 and 100.")
+    elif yearsToProject < 1:
+        st.warning("Please enter a positive number of Years to Project.")
+    else:
+        # Fair value calculation
+        futureEPS = fv(epsFWD, growth / 100, yearsToProject)
+        futurePrice = futureEPS * peFWD
+        stickerPrice = pv(futurePrice, requiredRateOfReturn / 100, yearsToProject)
+        upside = (stickerPrice - currentPrice) / currentPrice * 100
 
-    # Show result
-    st.metric("Future EPS", f"{futureEPS:.2f}")
-    st.metric("Future Price", f"{futurePrice:.2f}")
-    st.metric("Sticker Price", f"{stickerPrice:.2f}")
-    st.metric("Current Price", f"{currentPrice:.2f}")
-    st.metric("Upside", f"{upside:.2f}%")
+        # Show result
+        st.metric("Future EPS", f"{futureEPS:.2f}")
+        st.metric("Future Price", f"{futurePrice:.2f}")
+        st.metric("Sticker Price", f"{stickerPrice:.2f}")
+        st.metric("Current Price", f"{currentPrice:.2f}")
+        st.metric("Upside", f"{upside:.2f}%")
